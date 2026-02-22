@@ -1,0 +1,22 @@
+[package]
+name = "tower-spawn-scope"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+edition.workspace = true
+
+[dependencies]
+opentelemetry = "0.31.0"
+pin-project = "1.1.10"
+spawn-scope = { version = "0.1.0", path = "../spawn-scope" }
+tower.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+bytes = "1.6.0"
+http-body-util = "0.1.1"
+tokio.workspace = true
+tower-test = "0.4.0"

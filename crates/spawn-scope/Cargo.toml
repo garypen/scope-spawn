@@ -1,0 +1,21 @@
+[package]
+name = "spawn-scope"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme = "README.md"
+keywords = ["task", "tokio"]
+categories = ["concurrency"]
+description = "structured concurrency management for tokio tasks"
+
+[dependencies]
+tokio.workspace = true
+tokio-util = { version = "0.7.18", default-features = false, features = ["rt"] }
+
+[dev-dependencies]
+axum.workspace = true
+tower.workspace = true
