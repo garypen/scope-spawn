@@ -1,4 +1,4 @@
-# spawn-scope Monorepo
+# spawn-scope
 
 This monorepo contains two related crates for managing asynchronous tasks within a defined scope, particularly useful in the context of `tokio` and `tower`-based services.
 
