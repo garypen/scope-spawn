@@ -99,12 +99,12 @@ mod tests {
     use super::*;
     use spawn_scope::scope::ScopedSpawn;
 
+    type TestReq = Request<Empty<Bytes>>;
+    type TestRes = ();
+
     #[tokio::test]
     async fn test_cancellation_on_drop() {
-        type TestReq = Request<Empty<Bytes>>;
-        type TestRes = ();
-
-        // 1. Setup the mock service, which now expects WithScope<TestReq>
+        // Setup the mock service, which now expects WithScope<TestReq>
         let (mut mock_service, mut mock_handle) = tower_test::mock::spawn_with(
             |svc: tower_test::mock::Mock<WithScope<TestReq>, TestRes>| SpawnScopeService::new(svc),
         );
@@ -112,12 +112,12 @@ mod tests {
         // We only expect one call
         mock_handle.allow(1);
 
-        // 2. Send a request and get the ScopeFuture
+        // Send a request and get the ScopeFuture
         let req = Request::new(Empty::new()); // Original request type
         tokio_test::assert_ready_ok!(mock_service.poll_ready());
         let fut = mock_service.call(req);
 
-        // 3. Mock service receives the request as WithScope<TestReq>
+        // Mock service receives the request as WithScope<TestReq>
         let (with_scope_req, _send_response) = mock_handle.next_request().await.unwrap();
         let _inner_req = with_scope_req.request; // The original request
         let _inner_service_scope = with_scope_req.scope; // The scope passed to the inner service
@@ -125,17 +125,17 @@ mod tests {
         // The scope from ScopeFuture, which is responsible for cancellation upon fut drop
         let scope_from_fut = fut.scope();
 
-        // 4. Spawn a "background task" in the scope that lasts forever
+        // Spawn a "background task" in the scope that lasts forever
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
         scope_from_fut.spawn(async move {
             let _guard = tx; // Drops when this task is cancelled
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         });
 
-        // 5. Simulate a client timeout/disconnect by dropping the response future
+        // Simulate a client timeout/disconnect by dropping the response future
         drop(fut);
 
-        // 6. Verify the background task was actually killed
+        // Verify the background task was actually killed
         // The receiver will get an error when the sender is dropped.
         tokio::select! {
             resp = rx => assert!(resp.is_err()),
@@ -148,10 +148,7 @@ mod tests {
     #[tokio::test]
     #[should_panic]
     async fn test_no_cancellation_on_no_drop() {
-        type TestReq = Request<Empty<Bytes>>;
-        type TestRes = ();
-
-        // 1. Setup the mock service, which now expects WithScope<TestReq>
+        // Setup the mock service, which now expects WithScope<TestReq>
         let (mut mock_service, mut mock_handle) = tower_test::mock::spawn_with(
             |svc: tower_test::mock::Mock<WithScope<TestReq>, TestRes>| SpawnScopeService::new(svc),
         );
@@ -159,12 +156,12 @@ mod tests {
         // We only expect one call
         mock_handle.allow(1);
 
-        // 2. Send a request and get the ScopeFuture
+        // Send a request and get the ScopeFuture
         let req = Request::new(Empty::new()); // Original request type
         tokio_test::assert_ready_ok!(mock_service.poll_ready());
         let fut = mock_service.call(req);
 
-        // 3. Mock service receives the request as WithScope<TestReq>
+        // Mock service receives the request as WithScope<TestReq>
         let (with_scope_req, _send_response) = mock_handle.next_request().await.unwrap();
         let _inner_req = with_scope_req.request; // The original request
         let _inner_service_scope = with_scope_req.scope; // The scope passed to the inner service
@@ -172,7 +169,7 @@ mod tests {
         // The scope from ScopeFuture, which is responsible for cancellation upon fut drop
         let scope_from_fut = fut.scope();
 
-        // 4. Spawn a "background task" in the scope that lasts forever
+        // Spawn a "background task" in the scope that lasts forever
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
         scope_from_fut.spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -180,10 +177,10 @@ mod tests {
             let _ = tx.send(());
         });
 
-        // 5. Don't simulate a client timeout/disconnect by dropping the response future
+        // Don't simulate a client timeout/disconnect by dropping the response future
         // (i.e., don't drop 'fut')
 
-        // 6. Verify the background task was not killed
+        // Verify the background task was not killed
         // The receiver will get an error when the sender is dropped.
         tokio::select! {
             resp = rx => assert!(resp.is_err()),
