@@ -36,6 +36,8 @@ impl Drop for Scope {
 }
 
 pub trait ScopedSpawn {
+    /// Spawn a task on a tokio runtime.
+    ///
     /// ```
     /// use spawn_scope::scope::Scope;
     /// use spawn_scope::scope::ScopedSpawn;
@@ -53,6 +55,10 @@ pub trait ScopedSpawn {
     where
         F: Future<Output = ()> + Send + 'static;
 
+    /// Spawn a task on a tokio runtime with associated cleanup.
+    ///
+    /// If the task is cancelled, the provided cleanup function will execute.
+    ///
     /// ```
     /// use spawn_scope::scope::Scope;
     /// use spawn_scope::scope::ScopedSpawn;
