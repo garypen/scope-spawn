@@ -13,14 +13,15 @@ use tower::BoxError;
 use tower::Service;
 
 use spawn_scope::scope::Scope;
-use spawn_scope::scope::ScopedSpawn;
 
 #[derive(Clone, Debug)]
 struct SpawnScopeServiceMetrics {
-    early_wake: Counter<u64>,
+    tasks: Counter<u64>,
 }
 
 #[derive(Clone, Debug)]
+// We have to keep the meter hanging around...
+#[allow(dead_code)]
 pub struct SpawnScopeService<S> {
     inner: S,
     meter: Meter,
@@ -41,20 +42,24 @@ where
     }
 
     fn call(&mut self, req: Req) -> Self::Future {
-        ScopeFuture::new(self.inner.call(req))
+        self.instruments
+            .tasks
+            .add(1, &[KeyValue::new("tasks", "printed")]);
+        let scope = Scope::new();
+        ScopeFuture::new(self.inner.call(req), scope)
     }
 }
 
 impl<S> SpawnScopeService<S> {
     pub fn new(inner: S) -> Self {
-        let meter = global::meter("rate_limit_service");
+        let meter = global::meter("spawn_scope_service");
         let instruments = SpawnScopeServiceMetrics {
-            early_wake: meter.u64_counter("early_wake").build(),
+            tasks: meter.u64_counter("tasks").build(),
         };
 
         Self {
             inner,
-            meter: global::meter("spawn_scope_service"),
+            meter,
             instruments,
         }
     }
@@ -62,6 +67,7 @@ impl<S> SpawnScopeService<S> {
 
 /// A ScopeFuture. Useful for integrating Scope with [tower](https://docs.rs/tower/latest/tower/), [axum](https://docs.rs/axum/latest/axum), etc..
 #[pin_project(PinnedDrop)]
+#[derive(Clone, Debug)]
 pub struct ScopeFuture<F> {
     #[pin]
     inner: F,
@@ -69,11 +75,8 @@ pub struct ScopeFuture<F> {
 }
 
 impl<F> ScopeFuture<F> {
-    pub fn new(inner: F) -> Self {
-        Self {
-            inner,
-            scope: Scope::new(),
-        }
+    pub fn new(inner: F, scope: Scope) -> Self {
+        Self { inner, scope }
     }
 
     pub fn scope_ref(&self) -> &Scope {
@@ -103,45 +106,94 @@ mod tests {
     use axum::http::Request;
     use bytes::Bytes;
     use http_body_util::Empty;
-    use tower::ServiceExt;
-    use tower_test::mock::{self, Handle};
 
     use super::*;
-    use crate::layer::SpawnScopeLayer; // No longer needed if ServiceBuilder is bypassed
+    use spawn_scope::scope::ScopedSpawn;
 
     #[tokio::test]
     async fn test_cancellation_on_drop() {
         type TestReq = Request<Empty<Bytes>>;
         type TestRes = ();
 
-        // 1. Setup the mock service and create SpawnScopeService directly
-        let (inner_mock_service, mock_handle) = mock::spawn::<TestReq, TestRes>();
-        let mut service = SpawnScopeService::new(inner_mock_service);
+        // 1. Setup the mock service
+        let (mut mock_service, mut mock_handle) =
+            tower_test::mock::spawn_with(|svc: tower_test::mock::Mock<TestReq, TestRes>| {
+                SpawnScopeService::new(svc)
+            });
+
+        // We only expect one call
+        mock_handle.allow(1);
 
         // 2. Send a request and get the ScopeFuture
         let req = Request::new(Empty::new()); // Request needs a body, Empty::new() is suitable
-        let fut = service.call(req);
+        tokio_test::assert_ready_ok!(mock_service.poll_ready());
+        let fut = mock_service.call(req);
 
         // 3. Mock service receives the request, but we don't need to extract scope from it
         let (_req, _send_response) = mock_handle.next_request().await.unwrap();
         let scope = fut.scope_ref();
 
         // 4. Spawn a "background task" in the scope that lasts forever
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
         scope.spawn(async move {
             let _guard = tx; // Drops when this task is cancelled
-            tokio::time::sleep(std::time::Duration::from_secs(100)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         });
 
         // 5. Simulate a client timeout/disconnect by dropping the response future
         drop(fut);
 
         // 6. Verify the background task was actually killed
-        // Since the task was cancelled, the sender 'tx' is dropped, so 'rx' returns None.
+        // The receiver will get an error when the sender is dropped.
+        // assert!(rx.await.is_err());
         tokio::select! {
-            _ = rx.recv() => panic!("Task should have been cancelled!"),
+            resp = rx => assert!(resp.is_err()),
             _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
-                // Task successfully reaped
+                panic!("Task should have been cancelled!");
+            }
+        }
+    }
+
+    #[tokio::test]
+    #[should_panic]
+    async fn test_no_cancellation_on_no_drop() {
+        type TestReq = Request<Empty<Bytes>>;
+        type TestRes = ();
+
+        // 1. Setup the mock service
+        let (mut mock_service, mut mock_handle) =
+            tower_test::mock::spawn_with(|svc: tower_test::mock::Mock<TestReq, TestRes>| {
+                SpawnScopeService::new(svc)
+            });
+
+        // We only expect one call
+        mock_handle.allow(1);
+
+        // 2. Send a request and get the ScopeFuture
+        let req = Request::new(Empty::new()); // Request needs a body, Empty::new() is suitable
+        tokio_test::assert_ready_ok!(mock_service.poll_ready());
+        let fut = mock_service.call(req);
+
+        // 3. Mock service receives the request, but we don't need to extract scope from it
+        let (_req, _send_response) = mock_handle.next_request().await.unwrap();
+        let scope = fut.scope_ref();
+
+        // 4. Spawn a "background task" in the scope that lasts forever
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        scope.spawn(async move {
+            let _guard = tx; // Drops when this task is cancelled
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        });
+
+        // 5. Don't simulate a client timeout/disconnect by dropping the response future
+
+        // 6. Verify the background task was actually killed
+        // The receiver will get an error when the sender is dropped.
+        // assert!(rx.await.is_err());
+        tokio::select! {
+            resp = rx => assert!(resp.is_err()),
+            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                panic!("Task should have been cancelled!");
             }
         }
     }

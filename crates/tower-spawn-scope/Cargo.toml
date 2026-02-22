@@ -19,4 +19,5 @@ axum.workspace = true
 bytes = "1.6.0"
 http-body-util = "0.1.1"
 tokio.workspace = true
+tokio-test = "0.4.5"
 tower-test = "0.4.0"

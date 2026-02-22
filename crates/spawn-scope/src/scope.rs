@@ -2,7 +2,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 /// A Scope for spawning Tokio Tasks.
-#[derive(Clone)]
+#[derive(Clone, Debug, Default)]
 pub struct Scope {
     token: CancellationToken,
     tracker: TaskTracker,

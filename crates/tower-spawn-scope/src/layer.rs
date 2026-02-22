@@ -3,7 +3,7 @@ use tower::Layer;
 use crate::service::SpawnScopeService;
 
 /// Applies Spawn Scope to requests.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct SpawnScopeLayer {}
 
 impl SpawnScopeLayer {

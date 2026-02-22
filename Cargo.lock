@@ -655,6 +655,7 @@ dependencies = [
  "pin-project",
  "spawn-scope",
  "tokio",
+ "tokio-test",
  "tower",
  "tower-test",
 ]
