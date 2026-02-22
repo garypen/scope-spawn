@@ -9,7 +9,6 @@ documentation.workspace = true
 edition.workspace = true
 
 [dependencies]
-opentelemetry = "0.31.0"
 pin-project = "1.1.10"
 spawn-scope = { version = "0.1.0", path = "../spawn-scope" }
 tower.workspace = true

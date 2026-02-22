@@ -3,10 +3,6 @@ use std::pin::Pin;
 use std::task::Context;
 use std::task::Poll;
 
-use opentelemetry::KeyValue;
-use opentelemetry::global;
-use opentelemetry::metrics::Counter;
-use opentelemetry::metrics::Meter;
 use pin_project::pin_project;
 use pin_project::pinned_drop;
 use tower::BoxError;
@@ -15,17 +11,10 @@ use tower::Service;
 use spawn_scope::scope::Scope;
 
 #[derive(Clone, Debug)]
-struct SpawnScopeServiceMetrics {
-    tasks: Counter<u64>,
-}
-
-#[derive(Clone, Debug)]
 // We have to keep the meter hanging around...
 #[allow(dead_code)]
 pub struct SpawnScopeService<S> {
     inner: S,
-    meter: Meter,
-    instruments: SpawnScopeServiceMetrics,
 }
 
 impl<S, Req> Service<Req> for SpawnScopeService<S>
@@ -42,9 +31,6 @@ where
     }
 
     fn call(&mut self, req: Req) -> Self::Future {
-        self.instruments
-            .tasks
-            .add(1, &[KeyValue::new("tasks", "printed")]);
         let scope = Scope::new();
         ScopeFuture::new(self.inner.call(req), scope)
     }
@@ -52,16 +38,7 @@ where
 
 impl<S> SpawnScopeService<S> {
     pub fn new(inner: S) -> Self {
-        let meter = global::meter("spawn_scope_service");
-        let instruments = SpawnScopeServiceMetrics {
-            tasks: meter.u64_counter("tasks").build(),
-        };
-
-        Self {
-            inner,
-            meter,
-            instruments,
-        }
+        Self { inner }
     }
 }
 
@@ -145,7 +122,6 @@ mod tests {
 
         // 6. Verify the background task was actually killed
         // The receiver will get an error when the sender is dropped.
-        // assert!(rx.await.is_err());
         tokio::select! {
             resp = rx => assert!(resp.is_err()),
             _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
@@ -181,19 +157,19 @@ mod tests {
         // 4. Spawn a "background task" in the scope that lasts forever
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
         scope.spawn(async move {
-            let _guard = tx; // Drops when this task is cancelled
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            // We won't get here because our tokio::select is too impatient
+            let _ = tx.send(());
         });
 
         // 5. Don't simulate a client timeout/disconnect by dropping the response future
 
-        // 6. Verify the background task was actually killed
+        // 6. Verify the background task was not killed
         // The receiver will get an error when the sender is dropped.
-        // assert!(rx.await.is_err());
         tokio::select! {
             resp = rx => assert!(resp.is_err()),
             _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
-                panic!("Task should have been cancelled!");
+                panic!("Task was not cancelled!");
             }
         }
     }
