@@ -18,10 +18,17 @@ async fn main() {
 }
 ```
 
+## Examples
+
+A simple example demonstrating basic usage with `tokio` can be found in `examples/tokio_simple.rs`. To run it:
+
+```bash
+cargo run --example tokio_simple
+```
+
 ## Testing
 
 To run the tests, use the following command:
-
 ```bash
 cargo test
 ```
