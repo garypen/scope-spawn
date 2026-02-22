@@ -5,10 +5,16 @@ use std::task::Poll;
 
 use pin_project::pin_project;
 use pin_project::pinned_drop;
-use tower::BoxError;
 use tower::Service;
 
 use spawn_scope::scope::Scope;
+
+/// Request wrapper
+#[derive(Debug)]
+pub struct WithScope<Req> {
+    pub request: Req,
+    pub scope: Scope,
+}
 
 /// A spawn scope service.
 #[derive(Clone, Debug)]
@@ -18,8 +24,9 @@ pub struct SpawnScopeService<S> {
 
 impl<S, Req> Service<Req> for SpawnScopeService<S>
 where
-    S: Service<Req, Error = BoxError>,
+    S: Service<WithScope<Req>>, // Inner service expects WithScope<Req>
     Req: Send + 'static,
+    S::Error: 'static, // Ensure S::Error is static
 {
     type Response = S::Response;
     type Error = S::Error;
@@ -31,7 +38,13 @@ where
 
     fn call(&mut self, req: Req) -> Self::Future {
         let scope = Scope::new();
-        ScopeFuture::new(self.inner.call(req), scope)
+        // The scope clone is passed to the inner request AND kept by ScopeFuture
+        let inner_req_with_scope = WithScope {
+            request: req,
+            scope: scope.clone(),
+        };
+        let inner_future = self.inner.call(inner_req_with_scope);
+        ScopeFuture::new(inner_future, scope) // ScopeFuture retains its own clone for cancellation
     }
 }
 
@@ -91,27 +104,30 @@ mod tests {
         type TestReq = Request<Empty<Bytes>>;
         type TestRes = ();
 
-        // 1. Setup the mock service
-        let (mut mock_service, mut mock_handle) =
-            tower_test::mock::spawn_with(|svc: tower_test::mock::Mock<TestReq, TestRes>| {
-                SpawnScopeService::new(svc)
-            });
+        // 1. Setup the mock service, which now expects WithScope<TestReq>
+        let (mut mock_service, mut mock_handle) = tower_test::mock::spawn_with(
+            |svc: tower_test::mock::Mock<WithScope<TestReq>, TestRes>| SpawnScopeService::new(svc),
+        );
 
         // We only expect one call
         mock_handle.allow(1);
 
         // 2. Send a request and get the ScopeFuture
-        let req = Request::new(Empty::new()); // Request needs a body, Empty::new() is suitable
+        let req = Request::new(Empty::new()); // Original request type
         tokio_test::assert_ready_ok!(mock_service.poll_ready());
         let fut = mock_service.call(req);
 
-        // 3. Mock service receives the request, but we don't need to extract scope from it
-        let (_req, _send_response) = mock_handle.next_request().await.unwrap();
-        let scope = fut.scope();
+        // 3. Mock service receives the request as WithScope<TestReq>
+        let (with_scope_req, _send_response) = mock_handle.next_request().await.unwrap();
+        let _inner_req = with_scope_req.request; // The original request
+        let _inner_service_scope = with_scope_req.scope; // The scope passed to the inner service
+
+        // The scope from ScopeFuture, which is responsible for cancellation upon fut drop
+        let scope_from_fut = fut.scope();
 
         // 4. Spawn a "background task" in the scope that lasts forever
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-        scope.spawn(async move {
+        scope_from_fut.spawn(async move {
             let _guard = tx; // Drops when this task is cancelled
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         });
@@ -135,33 +151,37 @@ mod tests {
         type TestReq = Request<Empty<Bytes>>;
         type TestRes = ();
 
-        // 1. Setup the mock service
-        let (mut mock_service, mut mock_handle) =
-            tower_test::mock::spawn_with(|svc: tower_test::mock::Mock<TestReq, TestRes>| {
-                SpawnScopeService::new(svc)
-            });
+        // 1. Setup the mock service, which now expects WithScope<TestReq>
+        let (mut mock_service, mut mock_handle) = tower_test::mock::spawn_with(
+            |svc: tower_test::mock::Mock<WithScope<TestReq>, TestRes>| SpawnScopeService::new(svc),
+        );
 
         // We only expect one call
         mock_handle.allow(1);
 
         // 2. Send a request and get the ScopeFuture
-        let req = Request::new(Empty::new()); // Request needs a body, Empty::new() is suitable
+        let req = Request::new(Empty::new()); // Original request type
         tokio_test::assert_ready_ok!(mock_service.poll_ready());
         let fut = mock_service.call(req);
 
-        // 3. Mock service receives the request, but we don't need to extract scope from it
-        let (_req, _send_response) = mock_handle.next_request().await.unwrap();
-        let scope = fut.scope();
+        // 3. Mock service receives the request as WithScope<TestReq>
+        let (with_scope_req, _send_response) = mock_handle.next_request().await.unwrap();
+        let _inner_req = with_scope_req.request; // The original request
+        let _inner_service_scope = with_scope_req.scope; // The scope passed to the inner service
+
+        // The scope from ScopeFuture, which is responsible for cancellation upon fut drop
+        let scope_from_fut = fut.scope();
 
         // 4. Spawn a "background task" in the scope that lasts forever
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-        scope.spawn(async move {
+        scope_from_fut.spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
             // We won't get here because our tokio::select is too impatient
             let _ = tx.send(());
         });
 
         // 5. Don't simulate a client timeout/disconnect by dropping the response future
+        // (i.e., don't drop 'fut')
 
         // 6. Verify the background task was not killed
         // The receiver will get an error when the sender is dropped.
