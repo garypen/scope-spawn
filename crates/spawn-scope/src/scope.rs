@@ -55,9 +55,10 @@ pub trait ScopedSpawn {
     where
         F: Future<Output = ()> + Send + 'static;
 
-    /// Spawn a task on a tokio runtime with associated cleanup.
+    /// Spawn a task on a tokio runtime with associated post execution tasks.
     ///
     /// If the task is cancelled, the provided cleanup function will execute.
+    /// If the task completes, the provided complete function will execute.
     ///
     /// ```
     /// use spawn_scope::scope::Scope;
@@ -66,16 +67,18 @@ pub trait ScopedSpawn {
     /// #[tokio::main]
     /// async fn main() {
     ///     let scope = Scope::new();
-    ///     scope.spawn_with_cleanup(async {
+    ///     scope.spawn_with_hooks(async {
     ///         println!("Hello from a spawned task!");
-    ///     }, || { println!("called if cancelled"); });
+    ///     }, || { println!("called if cancelled");
+    ///     }, || { println!("called if completed"); });
     ///     // scope is dropped here, and spawned tasks are cancelled.
     /// }
     /// ```
-    fn spawn_with_cleanup<F, C>(&self, future: F, cleanup: C)
+    fn spawn_with_hooks<F, C, D>(&self, future: F, on_completion: C, on_cancellation: D)
     where
         F: Future<Output = ()> + Send + 'static,
-        C: FnOnce() + Send + 'static;
+        C: FnOnce() + Send + 'static,
+        D: FnOnce() + Send + 'static;
 }
 
 impl ScopedSpawn for Scope {
@@ -97,20 +100,22 @@ impl ScopedSpawn for Scope {
         self.tracker.spawn(task);
     }
 
-    fn spawn_with_cleanup<F, C>(&self, future: F, cleanup: C)
+    fn spawn_with_hooks<F, C, D>(&self, future: F, on_completion: C, on_cancellation: D)
     where
         F: Future<Output = ()> + Send + 'static,
         C: FnOnce() + Send + 'static,
+        D: FnOnce() + Send + 'static,
     {
         let token = self.token.clone();
         let task = async move {
             tokio::select! {
                 _ = token.cancelled() => {
-                    cleanup();
                     // Task cancelled
+                    on_cancellation();
                 }
                 _ = future => {
                     // Task completed
+                    on_completion();
                 }
             }
         };
@@ -165,12 +170,13 @@ mod tests {
         let s_clone = started.clone();
         let c_clone = cancelled.clone();
 
-        scope.spawn_with_cleanup(
+        scope.spawn_with_hooks(
             async move {
                 s_clone.store(true, Ordering::SeqCst);
                 // This task will complete when cancelled.
                 pending::<()>().await;
             },
+            || (),
             move || {
                 c_clone.store(true, Ordering::SeqCst);
             },
