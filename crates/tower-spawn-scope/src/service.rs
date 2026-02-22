@@ -10,9 +10,8 @@ use tower::Service;
 
 use spawn_scope::scope::Scope;
 
+/// A spawn scope service.
 #[derive(Clone, Debug)]
-// We have to keep the meter hanging around...
-#[allow(dead_code)]
 pub struct SpawnScopeService<S> {
     inner: S,
 }
@@ -56,7 +55,7 @@ impl<F> ScopeFuture<F> {
         Self { inner, scope }
     }
 
-    pub fn scope_ref(&self) -> &Scope {
+    pub fn scope(&self) -> &Scope {
         &self.scope
     }
 }
@@ -108,7 +107,7 @@ mod tests {
 
         // 3. Mock service receives the request, but we don't need to extract scope from it
         let (_req, _send_response) = mock_handle.next_request().await.unwrap();
-        let scope = fut.scope_ref();
+        let scope = fut.scope();
 
         // 4. Spawn a "background task" in the scope that lasts forever
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
@@ -152,7 +151,7 @@ mod tests {
 
         // 3. Mock service receives the request, but we don't need to extract scope from it
         let (_req, _send_response) = mock_handle.next_request().await.unwrap();
-        let scope = fut.scope_ref();
+        let scope = fut.scope();
 
         // 4. Spawn a "background task" in the scope that lasts forever
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
