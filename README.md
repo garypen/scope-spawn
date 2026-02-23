@@ -11,7 +11,7 @@ This monorepo contains two related crates for managing asynchronous tasks within
 Key features:
 -   **Scoped Task Spawning:** Spawn tasks that are logically grouped together.
 -   **Automatic Cancellation:** Tasks spawned within a `Scope` are automatically cancelled when the `Scope` is dropped or explicitly cancelled.
--   **Cleanup on Cancellation:** Supports `spawn_with_cleanup` to execute a function when a task is cancelled.
+-   **Hooks for Completion and Cancellation:** Supports `spawn_with_hooks` to execute separate functions when a task completes successfully or is cancelled.
 
 This crate forms the foundation for managing task lifecycles, ensuring that background operations do not outlive their intended context.
 

@@ -1,3 +1,4 @@
+use tokio_util::future::FutureExt;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
@@ -87,17 +88,9 @@ impl ScopedSpawn for Scope {
         F: Future<Output = ()> + Send + 'static,
     {
         let token = self.token.clone();
-        let task = async move {
-            tokio::select! {
-                _ = token.cancelled() => {
-                    // Task cancelled
-                }
-                _ = future => {
-                    // Task completed
-                }
-            }
-        };
-        self.tracker.spawn(task);
+        self.tracker.spawn(async move {
+            let _ = future.with_cancellation_token_owned(token).await;
+        });
     }
 
     fn spawn_with_hooks<F, C, D>(&self, future: F, on_completion: C, on_cancellation: D)
@@ -107,19 +100,12 @@ impl ScopedSpawn for Scope {
         D: FnOnce() + Send + 'static,
     {
         let token = self.token.clone();
-        let task = async move {
-            tokio::select! {
-                _ = token.cancelled() => {
-                    // Task cancelled
-                    on_cancellation();
-                }
-                _ = future => {
-                    // Task completed
-                    on_completion();
-                }
+        self.tracker.spawn(async move {
+            match future.with_cancellation_token_owned(token).await {
+                Some(()) => on_completion(),
+                None => on_cancellation(),
             }
-        };
-        self.tracker.spawn(task);
+        });
     }
 }
 
