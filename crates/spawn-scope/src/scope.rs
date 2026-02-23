@@ -225,4 +225,131 @@ mod tests {
         let response = response_handle.await.unwrap().unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     }
+
+    #[tokio::test]
+    async fn test_spawn_with_hooks_completion() {
+        let scope = Scope::new();
+        let completed = Arc::new(AtomicBool::new(false));
+        let cancelled = Arc::new(AtomicBool::new(false));
+
+        let comp_clone = completed.clone();
+        let canc_clone = cancelled.clone();
+
+        scope.spawn_with_hooks(
+            async move {
+                // Task completes normally
+            },
+            move || {
+                comp_clone.store(true, Ordering::SeqCst);
+            },
+            move || {
+                canc_clone.store(true, Ordering::SeqCst);
+            },
+        );
+
+        // Give the spawned task a moment to complete
+        time::sleep(Duration::from_millis(50)).await;
+        assert!(completed.load(Ordering::SeqCst));
+        assert!(!cancelled.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn test_multiple_tasks() {
+        let scope = Scope::new();
+        let count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        for _ in 0..10 {
+            let c = count.clone();
+            scope.spawn_with_hooks(
+                async move {
+                    pending::<()>().await;
+                },
+                || (),
+                move || {
+                    c.fetch_add(1, Ordering::SeqCst);
+                },
+            );
+        }
+
+        // Give tasks time to start (though they just pend)
+        time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(count.load(Ordering::SeqCst), 0);
+
+        drop(scope);
+
+        // Give cancellation time to propagate
+        time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(count.load(Ordering::SeqCst), 10);
+    }
+
+    #[tokio::test]
+    async fn test_scope_manual_cancel() {
+        let scope = Scope::new();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let c_clone = cancelled.clone();
+
+        scope.spawn_with_hooks(
+            async move {
+                pending::<()>().await;
+            },
+            || (),
+            move || {
+                c_clone.store(true, Ordering::SeqCst);
+            },
+        );
+
+        scope.cancel();
+
+        // Give cancellation time to propagate
+        time::sleep(Duration::from_millis(50)).await;
+        assert!(cancelled.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn test_scope_clone_shares_lifecycle() {
+        let scope = Scope::new();
+        let scope_clone = scope.clone();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let c_clone = cancelled.clone();
+
+        scope_clone.spawn_with_hooks(
+            async move {
+                pending::<()>().await;
+            },
+            || (),
+            move || {
+                c_clone.store(true, Ordering::SeqCst);
+            },
+        );
+
+        // Dropping the original scope should cancel tasks in the clone
+        drop(scope);
+
+        // Give cancellation time to propagate
+        time::sleep(Duration::from_millis(50)).await;
+        assert!(cancelled.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn test_spawn_after_cancel() {
+        let scope = Scope::new();
+        scope.cancel();
+
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let c_clone = cancelled.clone();
+
+        scope.spawn_with_hooks(
+            async move {
+                pending::<()>().await;
+            },
+            || (),
+            move || {
+                c_clone.store(true, Ordering::SeqCst);
+            },
+        );
+
+        // It should be cancelled immediately
+        time::sleep(Duration::from_millis(50)).await;
+        assert!(cancelled.load(Ordering::SeqCst));
+    }
 }

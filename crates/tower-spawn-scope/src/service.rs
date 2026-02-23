@@ -189,4 +189,40 @@ mod tests {
             }
         }
     }
+
+    #[tokio::test]
+    async fn test_cancellation_on_completion() {
+        let (mut mock_service, mut mock_handle) = tower_test::mock::spawn_with(
+            |svc: tower_test::mock::Mock<WithScope<TestReq>, TestRes>| SpawnScopeService::new(svc),
+        );
+
+        mock_handle.allow(1);
+
+        let req = Request::new(Empty::new());
+        tokio_test::assert_ready_ok!(mock_service.poll_ready());
+        let fut = mock_service.call(req);
+
+        let (with_scope_req, send_response) = mock_handle.next_request().await.unwrap();
+        let scope_from_service = with_scope_req.scope;
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        scope_from_service.spawn(async move {
+            let _guard = tx;
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        });
+
+        // Complete the request
+        send_response.send_response(());
+
+        // The future should resolve
+        let _res = fut.await;
+
+        // After the future is dropped (which it is here), the task should be cancelled
+        tokio::select! {
+            resp = rx => assert!(resp.is_err()),
+            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                panic!("Task should have been cancelled after completion!");
+            }
+        }
+    }
 }
