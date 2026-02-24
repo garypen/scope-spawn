@@ -1,5 +1,5 @@
 [package]
-name = "tower-spawn-scope"
+name = "tower-scope-spawn"
 version.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -14,7 +14,7 @@ description = "structured concurrency management for tower services"
 
 [dependencies]
 pin-project = "1.1.10"
-spawn-scope = { version = "0.1.0", path = "../spawn-scope" }
+scope-spawn = { version = "0.1.0", path = "../scope-spawn" }
 tower.workspace = true
 
 [dev-dependencies]

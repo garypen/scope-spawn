@@ -1,6 +1,6 @@
-# tower-spawn-scope
+# tower-scope-spawn
 
-`tower-spawn-scope` is a Tower layer that integrates request-scoped task management into your services. It leverages the `spawn-scope` crate to provide a mechanism for spawning background tasks that are automatically cancelled when the associated request's processing is complete or the connection is dropped.
+`tower-scope-spawn` is a Tower layer that integrates request-scoped task management into your services. It leverages the `scope-spawn` crate to provide a mechanism for spawning background tasks that are automatically cancelled when the associated request's processing is complete or the connection is dropped.
 
 This is particularly useful for:
 
@@ -10,11 +10,11 @@ This is particularly useful for:
 
 ## How it works
 
-The `SpawnScopeLayer` wraps your service, injecting a `spawn_scope::scope::Scope` into each incoming request. This scope can then be used within your service's logic to spawn `tokio` tasks. The key feature is that when the `tower::Service::call` future for a request completes or is dropped (e.g., due to a client disconnect or timeout), the associated `Scope` is automatically cancelled, and all tasks spawned within that scope are gracefully terminated.
+The `SpawnScopeLayer` wraps your service, injecting a `scope_spawn::scope::Scope` into each incoming request. This scope can then be used within your service's logic to spawn `tokio` tasks. The key feature is that when the `tower::Service::call` future for a request completes or is dropped (e.g., due to a client disconnect or timeout), the associated `Scope` is automatically cancelled, and all tasks spawned within that scope are gracefully terminated.
 
 ## Example
 
-To run this example, navigate to the `crates/tower-spawn-scope` directory and execute:
+To run this example, navigate to the `crates/tower-scope-spawn` directory and execute:
 
 ```bash
 cargo run --example simple_service
@@ -39,8 +39,8 @@ use hyper::{Request, Response};
 use tokio::net::TcpListener;
 use tokio::time::sleep;
 use tower::{Service, ServiceBuilder};
-use tower_spawn_scope::layer::SpawnScopeLayer;
-use tower_spawn_scope::service::WithScope;
+use tower_scope_spawn::layer::SpawnScopeLayer;
+use tower_scope_spawn::service::WithScope;
 
 // A simple service that processes a request and spawns a background task.
 async fn my_service(req: WithScope<Request<hyper::body::Incoming>>) -> Result<Response<Empty<Bytes>>, Infallible> {

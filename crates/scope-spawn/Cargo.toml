@@ -1,5 +1,5 @@
 [package]
-name = "spawn-scope"
+name = "scope-spawn"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -13,9 +13,9 @@ categories = ["concurrency"]
 description = "structured concurrency management for tokio tasks"
 
 [dependencies]
+tokio.workspace = true
 tokio-util = { version = "0.7.18", default-features = false, features = ["rt"] }
 
 [dev-dependencies]
 axum.workspace = true
-tokio.workspace = true
 tower.workspace = true

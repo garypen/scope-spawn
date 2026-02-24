@@ -10,9 +10,9 @@ authors = [
   "garypen <garypen@gmail.com>",
 ]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/garypen/spawn-scope"
-homepage = "https://github.com/garypen/spawn-scope"
-documentation = "https://github.com/garypen/spawn-scope?tab=readme-ov-file"
+repository = "https://github.com/garypen/scope-spawn"
+homepage = "https://github.com/garypen/scope-spawn"
+documentation = "https://github.com/garypen/scope-spawn?tab=readme-ov-file"
 edition = "2024"
 
 [workspace.dependencies]

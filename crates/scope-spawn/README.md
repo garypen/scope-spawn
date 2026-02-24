@@ -5,8 +5,7 @@ A small utility to manage spawned tokio tasks.
 ## Usage
 
 ```rust
-use spawn_scope::scope::Scope;
-use spawn_scope::scope::ScopedSpawn;
+use scope_spawn::scope::Scope;
 
 #[tokio::main]
 async fn main() {

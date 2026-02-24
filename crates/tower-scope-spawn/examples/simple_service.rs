@@ -11,14 +11,13 @@ use hyper::Response;
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
 use hyper_util::service::TowerToHyperService;
-use spawn_scope::scope::ScopedSpawn;
 use tokio::net::TcpListener;
 use tokio::time::sleep;
 use tower::Service;
 use tower::ServiceBuilder;
 
-use tower_spawn_scope::layer::SpawnScopeLayer;
-use tower_spawn_scope::service::WithScope;
+use tower_scope_spawn::layer::SpawnScopeLayer;
+use tower_scope_spawn::service::WithScope;
 
 // A simple service that processes a request and spawns a background task.
 // This struct implements the `Service` trait, expecting a `WithScope` request.
