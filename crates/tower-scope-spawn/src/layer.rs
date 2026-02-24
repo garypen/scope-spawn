@@ -1,9 +1,13 @@
+//!
+//! A Scoped Layer
+//!
+
 use tower::Layer;
 
 use crate::service::SpawnScopeService;
 
 /// Applies Spawn Scope to requests.
-#[derive(Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct SpawnScopeLayer {}
 
 impl SpawnScopeLayer {
