@@ -1,3 +1,7 @@
+//!
+//! Implementation of Scope
+//!
+
 use tokio::task::JoinHandle;
 use tokio_util::future::FutureExt;
 use tokio_util::sync::CancellationToken;
@@ -29,20 +33,11 @@ impl Scope {
     pub fn cancel(&self) {
         self.token.cancel();
     }
-}
 
-impl Drop for Scope {
-    fn drop(&mut self) {
-        self.cancel();
-    }
-}
-
-pub trait ScopedSpawn {
     /// Spawn a task on a tokio runtime.
     ///
     /// ```
-    /// use spawn_scope::scope::Scope;
-    /// use spawn_scope::scope::ScopedSpawn;
+    /// use scope_spawn::scope::Scope;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -53,10 +48,15 @@ pub trait ScopedSpawn {
     ///     // scope is dropped here, and spawned tasks are cancelled.
     /// }
     /// ```
-    fn spawn<F, R>(&self, future: F) -> JoinHandle<Option<F::Output>>
+    pub fn spawn<F, R>(&self, future: F) -> JoinHandle<Option<F::Output>>
     where
         F: Future<Output = R> + Send + 'static,
-        R: Send + 'static;
+        R: Send + 'static,
+    {
+        let token = self.token.clone();
+        self.tracker
+            .spawn(async move { future.with_cancellation_token_owned(token).await })
+    }
 
     /// Spawn a task on a tokio runtime with associated post execution tasks.
     ///
@@ -64,8 +64,7 @@ pub trait ScopedSpawn {
     /// If the task completes, the provided complete function will execute.
     ///
     /// ```
-    /// use spawn_scope::scope::Scope;
-    /// use spawn_scope::scope::ScopedSpawn;
+    /// use scope_spawn::scope::Scope;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -77,31 +76,7 @@ pub trait ScopedSpawn {
     ///     // scope is dropped here, and spawned tasks are cancelled.
     /// }
     /// ```
-    fn spawn_with_hooks<F, C, D, R>(
-        &self,
-        future: F,
-        on_completion: C,
-        on_cancellation: D,
-    ) -> JoinHandle<Option<F::Output>>
-    where
-        F: Future<Output = R> + Send + 'static,
-        C: FnOnce() + Send + 'static,
-        D: FnOnce() + Send + 'static,
-        R: Send + 'static;
-}
-
-impl ScopedSpawn for Scope {
-    fn spawn<F, R>(&self, future: F) -> JoinHandle<Option<F::Output>>
-    where
-        F: Future<Output = R> + Send + 'static,
-        R: Send + 'static,
-    {
-        let token = self.token.clone();
-        self.tracker
-            .spawn(async move { future.with_cancellation_token_owned(token).await })
-    }
-
-    fn spawn_with_hooks<F, C, D, R>(
+    pub fn spawn_with_hooks<F, C, D, R>(
         &self,
         future: F,
         on_completion: C,
@@ -126,6 +101,12 @@ impl ScopedSpawn for Scope {
                 }
             }
         })
+    }
+}
+
+impl Drop for Scope {
+    fn drop(&mut self) {
+        self.cancel();
     }
 }
 
@@ -166,7 +147,7 @@ mod tests {
 
         // INTERESTING. IF WE CANCEL, we get NONE, if we don't cancel
         // we get
-        // thread 'scope::tests::it_returns_stuff' (6677631) panicked at crates/spawn-scope/src/scope.rs:170:48:
+        // thread 'scope::tests::it_returns_stuff' (6677631) panicked at crates/scope-spawn/src/scope.rs:170:48:
         // first jh: JoinError::Panic(Id(3), "to panic is human", ...)
         // Hmm, actually it's racy. If we panic before we cancel we get panic.
         // Putting in a sleep here guarantees we get panic even if we try to drop because panic

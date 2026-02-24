@@ -7,7 +7,7 @@ use pin_project::pin_project;
 use pin_project::pinned_drop;
 use tower::Service;
 
-use spawn_scope::scope::Scope;
+use scope_spawn::scope::Scope;
 
 /// Request wrapper
 #[derive(Debug)]
@@ -97,7 +97,6 @@ mod tests {
     use http_body_util::Empty;
 
     use super::*;
-    use spawn_scope::scope::ScopedSpawn;
 
     type TestReq = Request<Empty<Bytes>>;
     type TestRes = ();

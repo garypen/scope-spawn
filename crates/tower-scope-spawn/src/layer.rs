@@ -30,7 +30,6 @@ mod tests {
 
     use super::*;
     use crate::service::ScopeFuture;
-    use spawn_scope::scope::ScopedSpawn;
 
     // Not Need with Layer tests, but left as documentation
     // type TestReq = Request<Empty<Bytes>>;

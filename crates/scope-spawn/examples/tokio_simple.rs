@@ -1,6 +1,6 @@
+use scope_spawn::scope::Scope;
 use std::time::Duration;
 use tokio::time;
-use spawn_scope::scope::{Scope, ScopedSpawn};
 
 #[tokio::main]
 async fn main() {
@@ -40,4 +40,3 @@ async fn main() {
 
     println!("Main function: Exiting.");
 }
-

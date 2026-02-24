@@ -1,12 +1,12 @@
-# spawn-scope
+# scope-spawn
 
 This monorepo contains two related crates for managing asynchronous tasks within a defined scope, particularly useful in the context of `tokio` and `tower`-based services.
 
 ## Crates
 
-### [`spawn-scope`](./crates/spawn-scope)
+### [`scope-spawn`](./crates/scope-spawn)
 
-`spawn-scope` is a small utility library that provides a flexible mechanism for spawning asynchronous tasks within a `Scope`. It uses `tokio_util::sync::CancellationToken` and `tokio_util::task::TaskTracker` to enable structured concurrency.
+`scope-spawn` is a small utility library that provides a flexible mechanism for spawning asynchronous tasks within a `Scope`. It uses `tokio_util::sync::CancellationToken` and `tokio_util::task::TaskTracker` to enable structured concurrency.
 
 Key features:
 -   **Scoped Task Spawning:** Spawn tasks that are logically grouped together.
@@ -15,12 +15,12 @@ Key features:
 
 This crate forms the foundation for managing task lifecycles, ensuring that background operations do not outlive their intended context.
 
-### [`tower-spawn-scope`](./crates/tower-spawn-scope)
+### [`tower-scope-spawn`](./crates/tower-scope-spawn)
 
-`tower-spawn-scope` builds upon `spawn-scope` by providing a `tower::Layer` (`SpawnScopeLayer`) and an associated `SpawnScopeService` that integrates request-scoped task management into `tower` services.
+`tower-scope-spawn` builds upon `scope-spawn` by providing a `tower::Layer` (`SpawnScopeLayer`) and an associated `SpawnScopeService` that integrates request-scoped task management into `tower` services.
 
 Key features:
--   **Request-Scoped Tasks:** Automatically associates a `spawn-scope::Scope` with each incoming service request via the `SpawnScopeService`.
+-   **Request-Scoped Tasks:** Automatically associates a `scope-spawn::Scope` with each incoming service request via the `SpawnScopeService`.
 -   **Service Integration:** Seamlessly apply structured concurrency to any `tower`-compatible service.
 -   **Lifecycle Management:** Tasks spawned within the request's scope are automatically cancelled when the `tower::Service::call` future for that request completes or is dropped (e.g., due to a client timeout or disconnect).
 
