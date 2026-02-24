@@ -1,3 +1,4 @@
+use tokio::task::JoinHandle;
 use tokio_util::future::FutureExt;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -52,9 +53,10 @@ pub trait ScopedSpawn {
     ///     // scope is dropped here, and spawned tasks are cancelled.
     /// }
     /// ```
-    fn spawn<F>(&self, future: F)
+    fn spawn<F, R>(&self, future: F) -> JoinHandle<Option<F::Output>>
     where
-        F: Future<Output = ()> + Send + 'static;
+        F: Future<Output = R> + Send + 'static,
+        R: Send + 'static;
 
     /// Spawn a task on a tokio runtime with associated post execution tasks.
     ///
@@ -75,37 +77,55 @@ pub trait ScopedSpawn {
     ///     // scope is dropped here, and spawned tasks are cancelled.
     /// }
     /// ```
-    fn spawn_with_hooks<F, C, D>(&self, future: F, on_completion: C, on_cancellation: D)
+    fn spawn_with_hooks<F, C, D, R>(
+        &self,
+        future: F,
+        on_completion: C,
+        on_cancellation: D,
+    ) -> JoinHandle<Option<F::Output>>
     where
-        F: Future<Output = ()> + Send + 'static,
+        F: Future<Output = R> + Send + 'static,
         C: FnOnce() + Send + 'static,
-        D: FnOnce() + Send + 'static;
+        D: FnOnce() + Send + 'static,
+        R: Send + 'static;
 }
 
 impl ScopedSpawn for Scope {
-    fn spawn<F>(&self, future: F)
+    fn spawn<F, R>(&self, future: F) -> JoinHandle<Option<F::Output>>
     where
-        F: Future<Output = ()> + Send + 'static,
+        F: Future<Output = R> + Send + 'static,
+        R: Send + 'static,
     {
         let token = self.token.clone();
-        self.tracker.spawn(async move {
-            let _ = future.with_cancellation_token_owned(token).await;
-        });
+        self.tracker
+            .spawn(async move { future.with_cancellation_token_owned(token).await })
     }
 
-    fn spawn_with_hooks<F, C, D>(&self, future: F, on_completion: C, on_cancellation: D)
+    fn spawn_with_hooks<F, C, D, R>(
+        &self,
+        future: F,
+        on_completion: C,
+        on_cancellation: D,
+    ) -> JoinHandle<Option<F::Output>>
     where
-        F: Future<Output = ()> + Send + 'static,
+        F: Future<Output = R> + Send + 'static,
         C: FnOnce() + Send + 'static,
         D: FnOnce() + Send + 'static,
+        R: Send + 'static,
     {
         let token = self.token.clone();
         self.tracker.spawn(async move {
             match future.with_cancellation_token_owned(token).await {
-                Some(()) => on_completion(),
-                None => on_cancellation(),
+                Some(r) => {
+                    on_completion();
+                    Some(r)
+                }
+                None => {
+                    on_cancellation();
+                    None
+                }
             }
-        });
+        })
     }
 }
 
@@ -114,6 +134,7 @@ mod tests {
     use std::future::pending;
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 
@@ -128,6 +149,36 @@ mod tests {
     use tower::Service;
 
     use super::*;
+
+    #[tokio::test]
+    async fn it_returns_stuff() {
+        let scope = Scope::new();
+        let (tx, rx) = oneshot::channel::<()>();
+
+        let jh = scope.spawn(async move {
+            // This task will complete when cancelled.
+            // The oneshot sender will be dropped.
+            let _tx = tx;
+            panic!("to panic is human");
+            pending::<()>().await;
+            45
+        });
+
+        // INTERESTING. IF WE CANCEL, we get NONE, if we don't cancel
+        // we get
+        // thread 'scope::tests::it_returns_stuff' (6677631) panicked at crates/spawn-scope/src/scope.rs:170:48:
+        // first jh: JoinError::Panic(Id(3), "to panic is human", ...)
+        // Hmm, actually it's racy. If we panic before we cancel we get panic.
+        // Putting in a sleep here guarantees we get panic even if we try to drop because panic
+        // happens before the drop
+
+        time::sleep(Duration::from_millis(50)).await;
+        drop(scope);
+        println!("first await: {:?}", jh.await.expect_err("first jh"));
+
+        // The receiver will get an error when the sender is dropped.
+        assert!(rx.await.is_err());
+    }
 
     #[tokio::test]
     async fn it_works() {
@@ -242,7 +293,7 @@ mod tests {
     #[tokio::test]
     async fn test_multiple_tasks() {
         let scope = Scope::new();
-        let count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = Arc::new(AtomicUsize::new(0));
 
         for _ in 0..10 {
             let c = count.clone();
