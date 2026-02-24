@@ -1,3 +1,7 @@
+//!
+//! A Scoped Service
+//!
+
 use std::future::Future;
 use std::pin::Pin;
 use std::task::Context;
@@ -12,7 +16,9 @@ use scope_spawn::scope::Scope;
 /// Request wrapper
 #[derive(Debug)]
 pub struct WithScope<Req> {
+    /// The original Request wrapped in this scope
     pub request: Req,
+    /// The Scope of the wrapped request
     pub scope: Scope,
 }
 
@@ -49,6 +55,7 @@ where
 }
 
 impl<S> SpawnScopeService<S> {
+    /// Create a new SpawnScopeService
     pub fn new(inner: S) -> Self {
         Self { inner }
     }
@@ -64,10 +71,12 @@ pub struct ScopeFuture<F> {
 }
 
 impl<F> ScopeFuture<F> {
+    /// Create a new ScopeFuture
     pub fn new(inner: F, scope: Scope) -> Self {
         Self { inner, scope }
     }
 
+    /// Borrow the scope
     pub fn scope(&self) -> &Scope {
         &self.scope
     }
@@ -75,10 +84,7 @@ impl<F> ScopeFuture<F> {
 
 impl<F: Future> Future for ScopeFuture<F> {
     type Output = F::Output;
-    fn poll(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.project().inner.poll(cx)
     }
 }
@@ -92,9 +98,13 @@ impl<F> PinnedDrop for ScopeFuture<F> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use axum::http::Request;
     use bytes::Bytes;
     use http_body_util::Empty;
+    use tokio::sync::oneshot::channel;
+    use tokio::time::sleep;
 
     use super::*;
 
@@ -125,10 +135,10 @@ mod tests {
         let scope_from_fut = fut.scope();
 
         // Spawn a "background task" in the scope that lasts forever
-        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let (tx, rx) = channel::<()>();
         scope_from_fut.spawn(async move {
             let _guard = tx; // Drops when this task is cancelled
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            sleep(Duration::from_millis(200)).await;
         });
 
         // Simulate a client timeout/disconnect by dropping the response future
@@ -138,7 +148,7 @@ mod tests {
         // The receiver will get an error when the sender is dropped.
         tokio::select! {
             resp = rx => assert!(resp.is_err()),
-            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+            _ = sleep(Duration::from_millis(100)) => {
                 panic!("Task should have been cancelled!");
             }
         }
@@ -169,9 +179,9 @@ mod tests {
         let scope_from_fut = fut.scope();
 
         // Spawn a "background task" in the scope that lasts forever
-        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let (tx, rx) = channel::<()>();
         scope_from_fut.spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            sleep(Duration::from_millis(200)).await;
             // We won't get here because our tokio::select is too impatient
             let _ = tx.send(());
         });
@@ -183,7 +193,7 @@ mod tests {
         // The receiver will get an error when the sender is dropped.
         tokio::select! {
             resp = rx => assert!(resp.is_err()),
-            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+            _ = sleep(Duration::from_millis(100)) => {
                 panic!("Task was not cancelled!");
             }
         }
@@ -204,10 +214,10 @@ mod tests {
         let (with_scope_req, send_response) = mock_handle.next_request().await.unwrap();
         let scope_from_service = with_scope_req.scope;
 
-        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let (tx, rx) = channel::<()>();
         scope_from_service.spawn(async move {
             let _guard = tx;
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            sleep(Duration::from_millis(200)).await;
         });
 
         // Complete the request
@@ -219,7 +229,7 @@ mod tests {
         // After the future is dropped (which it is here), the task should be cancelled
         tokio::select! {
             resp = rx => assert!(resp.is_err()),
-            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+            _ = sleep(Duration::from_millis(100)) => {
                 panic!("Task should have been cancelled after completion!");
             }
         }

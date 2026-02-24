@@ -1,89 +1,103 @@
 # tower-scope-spawn
 
-`tower-scope-spawn` is a Tower layer that integrates request-scoped task management into your services. It leverages the `scope-spawn` crate to provide a mechanism for spawning background tasks that are automatically cancelled when the associated request's processing is complete or the connection is dropped.
+`tower-scope-spawn` is a Tower layer for request-scoped task management. It uses the `scope-spawn` crate to spawn background tasks that are automatically cancelled when the request is fully handled or the client disconnects.
 
-This is particularly useful for:
-
--   **Request-specific cleanup:** Ensuring resources tied to a specific request are released when the request lifecycle ends.
--   **Structured concurrency:** Managing background tasks with clear ownership and cancellation semantics.
--   **Avoiding resource leaks:** Preventing long-running tasks from outliving the request that initiated them.
+This is useful for structured concurrency, preventing resource leaks by ensuring that tasks do not outlive the request that spawned them.
 
 ## How it works
 
-The `SpawnScopeLayer` wraps your service, injecting a `scope_spawn::scope::Scope` into each incoming request. This scope can then be used within your service's logic to spawn `tokio` tasks. The key feature is that when the `tower::Service::call` future for a request completes or is dropped (e.g., due to a client disconnect or timeout), the associated `Scope` is automatically cancelled, and all tasks spawned within that scope are gracefully terminated.
+The `SpawnScopeLayer` wraps your service. For each incoming request, it:
+1. Creates a new `scope_spawn::scope::Scope`.
+2. Wraps the `Request` in a `WithScope` struct, which includes the new scope.
+3. Passes the `WithScope<Request>` to your inner service.
+
+When the `tower::Service::call` future for the request is dropped (e.g., client disconnect), the associated `Scope` is cancelled, automatically terminating all tasks spawned within it.
 
 ## Example
 
-To run this example, navigate to the `crates/tower-scope-spawn` directory and execute:
+The example below shows a `tower::Service` that spawns a background task. The task's lifecycle is tied to the request.
 
+To run this example:
 ```bash
 cargo run --example simple_service
 ```
 
-Then, you can send an HTTP request to `http://127.0.0.1:3000` using `curl` or your browser:
+Then, test the two scenarios in a separate terminal:
 
-```bash
-curl http://127.0.0.1:3000
-```
+1.  **Normal Completion**: The background task finishes because the client waits.
+    ```bash
+    curl http://127.0.0.1:3000
+    ```
 
-You will observe the background task messages in your terminal. If you cancel the `curl` command mid-way (e.g., by pressing `Ctrl+C` before it finishes), you will see that the background task is immediately cancelled.
+2.  **Cancellation**: The background task is cancelled because the client disconnects early.
+    ```bash
+    curl http://127.0.0.1:3000
+    # Press Ctrl+C immediately
+    ```
 
 ```rust
+//! An example of how to use the `SpawnScopeLayer`.
 use std::convert::Infallible;
+use std::future::Future;
+use std::pin::Pin;
+use std::task::Context;
+use std::task::Poll;
 use std::time::Duration;
+
 use bytes::Bytes;
+use http_body_util::BodyExt;
 use http_body_util::Empty;
 use hyper::server::conn::http1;
-use hyper::service::service_fn;
-use hyper::{Request, Response};
+use hyper::Request;
+use hyper::Response;
+use hyper_util::rt::TokioIo;
+use hyper_util::service::TowerToHyperService;
 use tokio::net::TcpListener;
 use tokio::time::sleep;
-use tower::{Service, ServiceBuilder};
+use tower::Service;
+use tower::ServiceBuilder;
+
 use tower_scope_spawn::layer::SpawnScopeLayer;
 use tower_scope_spawn::service::WithScope;
 
-// A simple service that processes a request and spawns a background task.
-async fn my_service(req: WithScope<Request<hyper::body::Incoming>>) -> Result<Response<Empty<Bytes>>, Infallible> {
-    let scope = req.scope;
-    let _original_request = req.request;
+// A simple tower::Service that processes a request and spawns a background task.
+#[derive(Clone)]
+struct MyTowerService;
 
-    println!("Service received request. Spawning background task...");
+impl Service<WithScope<Request<hyper::body::Incoming>>> for MyTowerService {
+    type Response = Response<Empty<Bytes>>;
+    type Error = Infallible;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    scope.spawn(async move {
-        // This task will be cancelled if the request scope is dropped
-        for i in 1..=5 {
-            println!("Background task working... step {}", i);
-            sleep(Duration::from_millis(500)).await;
-        }
-        println!("Background task finished normally.");
-    });
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
 
-    println!("Service sending response immediately.");
-    Ok(Response::new(Empty::new()))
-}
+    fn call(&mut self, req: WithScope<Request<hyper::body::Incoming>>) -> Self::Future {
+        let scope = req.scope;
+        let _original_request = req.request;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let addr = "127.0.0.1:3000";
-    let listener = TcpListener::bind(addr).await?;
-    println!("Listening on http://{}", addr);
+        Box::pin(async move {
+            println!("[Handler] Received request. Spawning background task.");
 
-    // Build our service with the SpawnScopeLayer
-    let service = ServiceBuilder::new()
-        .layer(SpawnScopeLayer::new())
-        .service(service_fn(my_service));
+            // Here, we use spawn_with_hooks to clearly see the outcome.
+            scope.spawn_with_hooks(
+                async move {
+                    // This task will be cancelled if the request is dropped.
+                    for i in 1..=5 {
+                        println!("[Background] Working... step {}", i);
+                        sleep(Duration::from_secs(1)).await;
+                    }
+                },
+                || println!("[Background] Task finished normally."),
+                || println!("[Background] Task was cancelled."),
+            );
 
-    loop {
-        let (stream, _) = listener.accept().await?;
-        let service = service.clone(); // Clone the service for each connection
-        tokio::task::spawn(async move {
-            if let Err(err) = http1::Builder::new()
-                .serve_connection(stream, service)
-                .await
-            {
-                eprintln!("Error serving connection: {}", err);
-            }
-        });
+            // The handler returns a response immediately, without waiting for the
+            // background task to complete.
+            println!("[Handler] Sending response.");
+            Ok(Response::new(Empty::new()))
+        })
     }
 }
 ```

@@ -34,18 +34,45 @@ impl Scope {
         self.token.cancel();
     }
 
-    /// Spawn a task on a tokio runtime.
+    /// Spawn a task within the scope.
+    ///
+    /// This function is the primary way to introduce concurrency within a `Scope`.
+    /// The spawned task will be cancelled automatically when the `Scope` is dropped
+    /// or when `Scope::cancel()` is called.
+    ///
+    /// # When to use `spawn`
+    ///
+    /// Use `spawn` when you need to react to the outcome of the spawned task.
+    /// It returns a `JoinHandle<Option<Output>>`, allowing you to `.await` the
+    /// result. The `Option` will be:
+    ///
+    /// - `Some(value)` if the future completes successfully.
+    /// - `None` if the future is cancelled before completion.
+    ///
+    /// If you only need to run a side-effect on completion or cancellation (like
+    /// decrementing a counter), consider using [Scope::spawn_with_hooks] for a more
+    /// direct API.
     ///
     /// ```
     /// use scope_spawn::scope::Scope;
+    /// use std::time::Duration;
+    /// use tokio::time::sleep;
     ///
     /// #[tokio::main]
     /// async fn main() {
     ///     let scope = Scope::new();
-    ///     scope.spawn(async {
-    ///         println!("Hello from a spawned task!");
+    ///
+    ///     let handle = scope.spawn(async {
+    ///         // Simulate some work
+    ///         sleep(Duration::from_millis(10)).await;
+    ///         "Hello from a spawned task!"
     ///     });
-    ///     // scope is dropped here, and spawned tasks are cancelled.
+    ///
+    ///     let result = handle.await.unwrap();
+    ///     assert!(result.is_some());
+    ///     assert_eq!(result.unwrap(), "Hello from a spawned task!");
+    ///
+    ///     // scope is dropped here, and any remaining tasks are cancelled.
     /// }
     /// ```
     pub fn spawn<F, R>(&self, future: F) -> JoinHandle<Option<F::Output>>
@@ -58,30 +85,49 @@ impl Scope {
             .spawn(async move { future.with_cancellation_token_owned(token).await })
     }
 
-    /// Spawn a task on a tokio runtime with associated post execution tasks.
+    /// Spawn a "fire-and-forget" task with completion and cancellation hooks.
     ///
-    /// If the task is cancelled, the provided cleanup function will execute.
-    /// If the task completes, the provided complete function will execute.
+    /// This function is useful when you need to execute a side-effect based on the
+    /// task's outcome, but do not need to handle its return value directly.
+    ///
+    /// - The `on_completion` closure runs if the task finishes successfully.
+    /// - The `on_cancellation` closure runs if the task is cancelled.
+    ///
+    /// # When to use `spawn_with_hooks`
+    ///
+    /// This method is ideal for managing resources, such as semaphores or counters,
+    /// that are tied to the lifecycle of a task. For example, you might decrement
+    /// an "in-flight requests" counter in both hooks to ensure it's always accurate,
+    /// regardless of how the task terminates.
+    ///
+    /// If you need to `await` the task's result, use [Scope::spawn] instead.
     ///
     /// ```
     /// use scope_spawn::scope::Scope;
+    /// use std::sync::Arc;
+    /// use std::sync::atomic::AtomicUsize;
+    /// use std::sync::atomic::Ordering;
     ///
     /// #[tokio::main]
     /// async fn main() {
     ///     let scope = Scope::new();
-    ///     scope.spawn_with_hooks(async {
-    ///         println!("Hello from a spawned task!");
-    ///     }, || { println!("called if cancelled");
-    ///     }, || { println!("called if completed"); });
+    ///     let completed_count = Arc::new(AtomicUsize::new(0));
+    ///
+    ///     let count_clone = completed_count.clone();
+    ///     scope.spawn_with_hooks(
+    ///         async { /* ... */ },
+    ///         move || { count_clone.fetch_add(1, Ordering::SeqCst); },
+    ///         || { /* handle cancellation */ }
+    ///     );
+    ///
+    ///     // Give the task time to complete.
+    ///     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    ///
+    ///     assert_eq!(completed_count.load(Ordering::SeqCst), 1);
     ///     // scope is dropped here, and spawned tasks are cancelled.
     /// }
     /// ```
-    pub fn spawn_with_hooks<F, C, D, R>(
-        &self,
-        future: F,
-        on_completion: C,
-        on_cancellation: D,
-    ) -> JoinHandle<Option<F::Output>>
+    pub fn spawn_with_hooks<F, C, D, R>(&self, future: F, on_completion: C, on_cancellation: D)
     where
         F: Future<Output = R> + Send + 'static,
         C: FnOnce() + Send + 'static,
@@ -100,7 +146,7 @@ impl Scope {
                     None
                 }
             }
-        })
+        });
     }
 }
 
@@ -132,7 +178,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn it_returns_stuff() {
+    async fn it_correctly_processes_spawned_panic() {
         let scope = Scope::new();
         let (tx, rx) = oneshot::channel::<()>();
 
@@ -141,22 +187,17 @@ mod tests {
             // The oneshot sender will be dropped.
             let _tx = tx;
             panic!("to panic is human");
-            pending::<()>().await;
-            45
         });
 
-        // INTERESTING. IF WE CANCEL, we get NONE, if we don't cancel
-        // we get
-        // thread 'scope::tests::it_returns_stuff' (6677631) panicked at crates/scope-spawn/src/scope.rs:170:48:
-        // first jh: JoinError::Panic(Id(3), "to panic is human", ...)
-        // Hmm, actually it's racy. If we panic before we cancel we get panic.
         // Putting in a sleep here guarantees we get panic even if we try to drop because panic
         // happens before the drop
-
         time::sleep(Duration::from_millis(50)).await;
-        drop(scope);
-        println!("first await: {:?}", jh.await.expect_err("first jh"));
 
+        drop(scope);
+
+        let result = jh.await; // We expect an error because we panicked before we dropped
+
+        assert!(result.is_err());
         // The receiver will get an error when the sender is dropped.
         assert!(rx.await.is_err());
     }
