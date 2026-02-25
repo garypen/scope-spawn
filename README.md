@@ -4,9 +4,9 @@ This monorepo contains two related crates for managing asynchronous tasks within
 
 ## Crates
 
-### [`scope-spawn`](./crates/scope-spawn)
+### [scope-spawn](./crates/scope-spawn)
 
-`scope-spawn` is a small utility library that provides a flexible mechanism for spawning asynchronous tasks within a `Scope`. It uses `tokio_util::sync::CancellationToken` and `tokio_util::task::TaskTracker` to enable structured concurrency.
+A small utility library that provides a flexible mechanism for spawning asynchronous tasks within a `Scope`. It uses `tokio_util::sync::CancellationToken` and `tokio_util::task::TaskTracker` to enable structured concurrency.
 
 Key features:
 -   **Scoped Task Spawning:** Spawn tasks that are logically grouped together.
@@ -15,12 +15,12 @@ Key features:
 
 This crate forms the foundation for managing task lifecycles, ensuring that background operations do not outlive their intended context.
 
-### [`tower-scope-spawn`](./crates/tower-scope-spawn)
+### [tower-scope-spawn](./crates/tower-scope-spawn)
 
-`tower-scope-spawn` builds upon `scope-spawn` by providing a `tower::Layer` (`SpawnScopeLayer`) and an associated `SpawnScopeService` that integrates request-scoped task management into `tower` services.
+Builds upon `scope-spawn` by providing a `tower::Layer` (`ScopeSpawnLayer`) and an associated `ScopeSpawnService` that integrates request-scoped task management into `tower` services.
 
 Key features:
--   **Request-Scoped Tasks:** Automatically associates a `scope-spawn::Scope` with each incoming service request via the `SpawnScopeService`.
+-   **Request-Scoped Tasks:** Automatically associates a `scope-spawn::Scope` with each incoming service request via the `ScopeSpawnService`.
 -   **Service Integration:** Seamlessly apply structured concurrency to any `tower`-compatible service.
 -   **Lifecycle Management:** Tasks spawned within the request's scope are automatically cancelled when the `tower::Service::call` future for that request completes or is dropped (e.g., due to a client timeout or disconnect).
 

@@ -4,24 +4,24 @@
 
 use tower::Layer;
 
-use crate::service::SpawnScopeService;
+use crate::service::ScopeSpawnService;
 
 /// Applies Spawn Scope to requests.
 #[derive(Copy, Clone, Debug, Default)]
-pub struct SpawnScopeLayer {}
+pub struct ScopeSpawnLayer {}
 
-impl SpawnScopeLayer {
-    /// Create a SpawnScopeLayer
+impl ScopeSpawnLayer {
+    /// Create a ScopeSpawnLayer
     pub fn new() -> Self {
-        SpawnScopeLayer {}
+        ScopeSpawnLayer {}
     }
 }
 
-impl<S> Layer<S> for SpawnScopeLayer {
-    type Service = SpawnScopeService<S>;
+impl<S> Layer<S> for ScopeSpawnLayer {
+    type Service = ScopeSpawnService<S>;
 
     fn layer(&self, service: S) -> Self::Service {
-        SpawnScopeService::new(service)
+        ScopeSpawnService::new(service)
     }
 }
 
@@ -42,7 +42,7 @@ mod tests {
     #[tokio::test]
     async fn test_cancellation_on_drop() {
         // Setup the mock service, which now expects WithScope<TestReq>
-        let (mut mock_service, mut mock_handle) = mock::spawn_layer(SpawnScopeLayer::new());
+        let (mut mock_service, mut mock_handle) = mock::spawn_layer(ScopeSpawnLayer::new());
 
         // We only expect one call
         mock_handle.allow(1);
@@ -84,7 +84,7 @@ mod tests {
     #[should_panic]
     async fn test_no_cancellation_on_no_drop() {
         // Setup the mock service, which now expects WithScope<TestReq>
-        let (mut mock_service, mut mock_handle) = mock::spawn_layer(SpawnScopeLayer::new());
+        let (mut mock_service, mut mock_handle) = mock::spawn_layer(ScopeSpawnLayer::new());
 
         // We only expect one call
         mock_handle.allow(1);

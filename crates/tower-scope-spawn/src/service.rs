@@ -24,11 +24,11 @@ pub struct WithScope<Req> {
 
 /// A spawn scope service.
 #[derive(Clone, Debug)]
-pub struct SpawnScopeService<S> {
+pub struct ScopeSpawnService<S> {
     inner: S,
 }
 
-impl<S, Req> Service<Req> for SpawnScopeService<S>
+impl<S, Req> Service<Req> for ScopeSpawnService<S>
 where
     S: Service<WithScope<Req>>, // Inner service expects WithScope<Req>
     Req: Send + 'static,
@@ -54,8 +54,8 @@ where
     }
 }
 
-impl<S> SpawnScopeService<S> {
-    /// Create a new SpawnScopeService
+impl<S> ScopeSpawnService<S> {
+    /// Create a new ScopeSpawnService
     pub fn new(inner: S) -> Self {
         Self { inner }
     }
@@ -115,7 +115,7 @@ mod tests {
     async fn test_cancellation_on_drop() {
         // Setup the mock service, which now expects WithScope<TestReq>
         let (mut mock_service, mut mock_handle) = tower_test::mock::spawn_with(
-            |svc: tower_test::mock::Mock<WithScope<TestReq>, TestRes>| SpawnScopeService::new(svc),
+            |svc: tower_test::mock::Mock<WithScope<TestReq>, TestRes>| ScopeSpawnService::new(svc),
         );
 
         // We only expect one call
@@ -159,7 +159,7 @@ mod tests {
     async fn test_no_cancellation_on_no_drop() {
         // Setup the mock service, which now expects WithScope<TestReq>
         let (mut mock_service, mut mock_handle) = tower_test::mock::spawn_with(
-            |svc: tower_test::mock::Mock<WithScope<TestReq>, TestRes>| SpawnScopeService::new(svc),
+            |svc: tower_test::mock::Mock<WithScope<TestReq>, TestRes>| ScopeSpawnService::new(svc),
         );
 
         // We only expect one call
@@ -202,7 +202,7 @@ mod tests {
     #[tokio::test]
     async fn test_cancellation_on_completion() {
         let (mut mock_service, mut mock_handle) = tower_test::mock::spawn_with(
-            |svc: tower_test::mock::Mock<WithScope<TestReq>, TestRes>| SpawnScopeService::new(svc),
+            |svc: tower_test::mock::Mock<WithScope<TestReq>, TestRes>| ScopeSpawnService::new(svc),
         );
 
         mock_handle.allow(1);
