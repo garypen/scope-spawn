@@ -6,7 +6,7 @@ This is useful for structured concurrency, preventing resource leaks by ensuring
 
 ## How it works
 
-The `SpawnScopeLayer` wraps your service. For each incoming request, it:
+The `ScopeSpawnLayer` wraps your service. For each incoming request, it:
 1. Creates a new `scope_spawn::scope::Scope`.
 2. Wraps the `Request` in a `WithScope` struct, which includes the new scope.
 3. Passes the `WithScope<Request>` to your inner service.
@@ -36,7 +36,7 @@ Then, test the two scenarios in a separate terminal:
     ```
 
 ```rust
-//! An example of how to use the `SpawnScopeLayer`.
+//! An example of how to use the `ScopeSpawnLayer`.
 use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
@@ -57,7 +57,7 @@ use tokio::time::sleep;
 use tower::Service;
 use tower::ServiceBuilder;
 
-use tower_scope_spawn::layer::SpawnScopeLayer;
+use tower_scope_spawn::layer::ScopeSpawnLayer;
 use tower_scope_spawn::service::WithScope;
 
 // A simple tower::Service that processes a request and spawns a background task.

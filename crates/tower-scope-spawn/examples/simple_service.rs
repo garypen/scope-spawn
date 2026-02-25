@@ -1,4 +1,4 @@
-//! An example of how to use the `SpawnScopeLayer`.
+//! An example of how to use the `ScopeSpawnLayer`.
 //!
 //! To run this example, you can use `curl`:
 //!
@@ -31,7 +31,7 @@ use tokio::time::sleep;
 use tower::Service;
 use tower::ServiceBuilder;
 
-use tower_scope_spawn::layer::SpawnScopeLayer;
+use tower_scope_spawn::layer::ScopeSpawnLayer;
 use tower_scope_spawn::service::WithScope;
 
 // A simple tower::Service that processes a request and spawns a background task.
@@ -83,10 +83,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("Listening on http://{}", addr);
     println!("Try running `curl {}` in another terminal.", addr);
 
-    // Build our service with the SpawnScopeLayer.
+    // Build our service with the ScopeSpawnLayer.
     // This layer wraps our service and provides the `Scope` to it.
     let tower_service = ServiceBuilder::new()
-        .layer(SpawnScopeLayer::new())
+        .layer(ScopeSpawnLayer::new())
         .service(MyTowerService);
 
     loop {
