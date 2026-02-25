@@ -85,16 +85,17 @@ impl Service<WithScope<Request<hyper::body::Incoming>>> for MyTowerService {
                 async move {
                     // This task will be cancelled if the request is dropped.
                     for i in 1..=5 {
-                        println!("[Background] Working... step {}", i);
-                        sleep(Duration::from_secs(1)).await;
+                        println!("[Background] Working... step {} of 5", i);
+                        sleep(Duration::from_millis(500)).await;
                     }
                 },
                 || println!("[Background] Task finished normally."),
                 || println!("[Background] Task was cancelled."),
             );
 
-            // The handler returns a response immediately, without waiting for the
-            // background task to complete.
+            // The handler waits for 3 seconds before sending a response.
+            // If the user presses Ctrl+C, then they'll seek the task is cancelled.
+            sleep(Duration::from_secs(3)).await;
             println!("[Handler] Sending response.");
             Ok(Response::new(Empty::new()))
         })
