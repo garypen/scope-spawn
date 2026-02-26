@@ -8,6 +8,9 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 /// A Scope for spawning Tokio Tasks.
+///
+/// When the Scope is dropped, any tasks which are still executing are cancelled.
+/// If you want to cancel all tasks sooner, you can use [Scope::cancel()].
 #[derive(Clone, Debug, Default)]
 pub struct Scope {
     token: CancellationToken,
@@ -26,10 +29,7 @@ impl Scope {
         }
     }
 
-    /// Cancel all spawned tasks.
-    ///
-    /// Note: Spawned tasks will be cancelled when the scope is dropped.
-    /// However, if you wish to cancel them sooner, you can.
+    /// Cancel all the spawned, and still executing, tasks.
     pub fn cancel(&self) {
         self.token.cancel();
     }
